@@ -13,11 +13,17 @@ from skimage import io
 import os
 from glob import glob
 
+from PIL import Image
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms, utils
 from torchvision.transforms.functional import normalize
 import torch.nn.functional as F
+
+
+# Ignore warnings from DIS
+Image.MAX_IMAGE_PIXELS = None
+
 
 #### --------------------- DIS dataloader cache ---------------------####
 
@@ -70,7 +76,8 @@ def get_im_gt_name_dict(datasets, flag='valid'):
 
     return name_im_gt_list
 
-def create_dataloaders(name_im_gt_list, cache_size=[], cache_boost=True, my_transforms=[], batch_size=1, shuffle=False):
+def create_dataloaders(name_im_gt_list, cache_size=[], cache_boost=True, my_transforms=[], batch_size=1, shuffle=False, cache_data=False):
+    """Read and preprocess samples on demand unless disk caching is enabled."""
     ## model="train": return one dataloader for training
     ## model="valid": return a list of dataloaders for validation or testing
 
@@ -93,7 +100,8 @@ def create_dataloaders(name_im_gt_list, cache_size=[], cache_boost=True, my_tran
                                       cache_size = cache_size,
                                       cache_path = name_im_gt_list[i]["cache_dir"],
                                       cache_boost = cache_boost,
-                                      transform = transforms.Compose(my_transforms))
+                                      transform = transforms.Compose(my_transforms),
+                                      cache_data = cache_data)
         gos_dataloaders.append(DataLoader(gos_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers_))
         gos_datasets.append(gos_dataset)
 
@@ -113,7 +121,7 @@ def im_preprocess(im,size):
         return im_tensor, im.shape[0:2]
     else:
         im_tensor = torch.unsqueeze(im_tensor,0)
-        im_tensor = F.upsample(im_tensor, size, mode="bilinear")
+        im_tensor = F.interpolate(im_tensor, size, mode="bilinear", align_corners=False)
         im_tensor = torch.squeeze(im_tensor,0)
 
     return im_tensor.type(torch.uint8), im.shape[0:2]
@@ -127,8 +135,8 @@ def gt_preprocess(gt,size):
     if(len(size)<2):
         return gt_tensor.type(torch.uint8), gt.shape[0:2]
     else:
-        gt_tensor = torch.unsqueeze(torch.tensor(gt_tensor, dtype=torch.float32),0)
-        gt_tensor = F.upsample(gt_tensor, size, mode="bilinear")
+        gt_tensor = torch.unsqueeze(gt_tensor.to(dtype=torch.float32),0)
+        gt_tensor = F.interpolate(gt_tensor, size, mode="bilinear", align_corners=False)
         gt_tensor = torch.squeeze(gt_tensor,0)
 
     return gt_tensor.type(torch.uint8), gt.shape[0:2]
@@ -156,8 +164,8 @@ class GOSResize(object):
         # import time
         # start = time.time()
 
-        image = torch.squeeze(F.upsample(torch.unsqueeze(image,0),self.size,mode='bilinear'),dim=0)
-        label = torch.squeeze(F.upsample(torch.unsqueeze(label,0),self.size,mode='bilinear'),dim=0)
+        image = torch.squeeze(F.interpolate(torch.unsqueeze(image,0),self.size,mode='bilinear', align_corners=False),dim=0)
+        label = torch.squeeze(F.interpolate(torch.unsqueeze(label,0),self.size,mode='bilinear', align_corners=False),dim=0)
 
         # print("time for resize: ", time.time()-start)
 
@@ -196,7 +204,7 @@ class GOSNormalize(object):
 
 class GOSDatasetCache(Dataset):
 
-    def __init__(self, name_im_gt_list, cache_size=[], cache_path='./cache', cache_file_name='dataset.json', cache_boost=False, transform=None):
+    def __init__(self, name_im_gt_list, cache_size=[], cache_path='./cache', cache_file_name='dataset.json', cache_boost=False, transform=None, cache_data=False):
 
 
         self.cache_size = cache_size
@@ -204,7 +212,8 @@ class GOSDatasetCache(Dataset):
         self.cache_file_name = cache_file_name
         self.cache_boost_name = ""
 
-        self.cache_boost = cache_boost
+        self.cache_data = cache_data
+        self.cache_boost = cache_boost and cache_data
         # self.ims_npy = None
         # self.gts_npy = None
 
@@ -254,7 +263,8 @@ class GOSDatasetCache(Dataset):
         self.dataset["ims_pt_dir"] = ""
         self.dataset["gts_pt_dir"] = ""
 
-        self.dataset = self.manage_cache(dataset_names)
+        if self.cache_data:
+            self.dataset = self.manage_cache(dataset_names)
 
     def manage_cache(self,dataset_names):
         if not os.path.exists(self.cache_path): # create the folder for cache
@@ -346,7 +356,15 @@ class GOSDatasetCache(Dataset):
 
         im = None
         gt = None
-        if(self.cache_boost and self.ims_pt is not None):
+        if not self.cache_data:
+            image = im_reader(self.dataset["im_path"][idx])
+            if self.dataset["gt_path"]:
+                label = im_reader(self.dataset["gt_path"][idx])
+            else:
+                label = np.zeros(image.shape[:2], dtype=np.uint8)
+            im, im_shp = im_preprocess(image, self.cache_size)
+            gt, _ = gt_preprocess(label, self.cache_size)
+        elif(self.cache_boost and self.ims_pt is not None):
 
             # start = time.time()
             im = self.ims_pt[idx]#.type(torch.float32)
@@ -364,7 +382,8 @@ class GOSDatasetCache(Dataset):
             # print(idx,'time for tensor loading: ', time.time()-start)
 
 
-        im_shp = self.dataset["im_shp"][idx]
+        if self.cache_data:
+            im_shp = self.dataset["im_shp"][idx]
         # print("time for loading im and gt: ", time.time()-start)
 
         # start_time = time.time()

@@ -140,6 +140,8 @@ conda activate pytorch18
 python train_valid_inference_main.py
 ```
 
+Images and masks are read and resized on the fly by default, without reading or writing a dataset cache. To restore the original disk-cache behavior, set `hypar["cache_data"] = True` in `train_valid_inference_main.py`. This applies to training and validation; `hypar["cache_size"]` controls the preprocessing resolution in either mode. The existing `cache_boost_train` and `cache_boost_valid` settings only take effect when caching is enabled.
+
 ### (5) Inference
 
 Download the pre-trained weights (for fair academic comparisons) ```isnet.pth``` from [(Google Drive)](https://drive.google.com/file/d/1XHIzgTzY5BQHw140EDIgwIb53K659ENH/view?usp=sharing) or [(Baidu Pan 提取码：xbfk)](https://pan.baidu.com/s/1-X2WutiBkWPt-oakuvZ10w?pwd=xbfk) OR the optimized model weights ```isnet-general-use.pth``` (for general use) from [(Google Drive)]([https://drive.google.com/file/d/1nV57qKuy--d5u1yvkng9aXW1KS4sOpOi/view?usp=sharing](https://drive.google.com/file/d/1klUkUnQFAxPdFu9XE3Vhnn-e72CVz6oM/view?usp=sharing)) or [(Baidu Pan 提取码:6jh2)](https://pan.baidu.com/s/111MqmwnUc8Z4Wsq2Pc4bhQ?pwd=6jh2), and store them in ```saved_models/IS-Net``` <br>
