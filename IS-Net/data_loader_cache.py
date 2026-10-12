@@ -102,7 +102,7 @@ def create_dataloaders(name_im_gt_list, cache_size=[], cache_boost=True, my_tran
                                       cache_boost = cache_boost,
                                       transform = transforms.Compose(my_transforms),
                                       cache_data = cache_data)
-        gos_dataloaders.append(DataLoader(gos_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers_))
+        gos_dataloaders.append(DataLoader(gos_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers_, pin_memory=True, persistent_workers=num_workers_ > 0))
         gos_datasets.append(gos_dataset)
 
     return gos_dataloaders, gos_datasets
